@@ -1,0 +1,396 @@
+import customtkinter as ctk
+import chromadb
+import requests
+import os
+import webbrowser
+import threading
+import wave
+import speech_recognition as sr
+import pyttsx3
+import sounddevice as sd
+import imaplib
+import smtplib
+import email
+import sys
+import math
+import colorsys
+from email.mime.text import MIMEText
+from tkinter import messagebox
+from flask import Flask, request, jsonify
+
+if sys.platform == "win32":
+    import winreg
+
+# 🔴 CONFIGURATION PANEL
+GMAIL_EMAIL = "your_email@gmail.com"  
+GMAIL_PASSWORD = "pfbn nvnz fnjs bskh"  
+IPHONE_ACCESS_PIN = "1234"  
+
+try:
+    voice_engine = pyttsx3.init()
+    voice_engine.setProperty('rate', 180)
+except:
+    voice_engine = None
+
+server = Flask(__name__)
+ui_instance = None  
+
+ctk.set_appearance_mode("light")
+
+class PashaQuantumEngine(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        global ui_instance
+        ui_instance = self
+
+        self.title("Pasha")
+        self.geometry("850x680")
+        self.configure(fg_color="#f0f4f9") # Ultra-clean modern off-white canvas
+
+        # Database Setup
+        self.chroma_client = chromadb.PersistentClient(path="./local_ai_memory")
+        self.memory_collection = self.chroma_client.get_or_create_collection(name="chat_history")
+        self.live_sync_history = []
+
+        self.menu_visible = False
+        self.live_state = "idle" # idle, listening, thinking, speaking
+        self.live_overlay = None  # Floating independent window token
+        
+        self.initialize_interface()
+
+    def initialize_interface(self):
+        self.grid_rowconfigure(0, weight=0)
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=0)
+        self.grid_columnconfigure(0, weight=1)
+
+        # ================= PREMIUM APPLICATION HEADER =================
+        self.header_frame = ctk.CTkFrame(self, fg_color="transparent", height=50)
+        self.header_frame.grid(row=0, column=0, sticky="ew", padx=30, pady=(15, 5))
+        
+        self.status_lbl = ctk.CTkLabel(self.header_frame, text="✨ Pasha Core Active", font=("Segoe UI", 13), text_color="#5f6368")
+        self.status_lbl.pack(side="left")
+
+        self.dots_btn = ctk.CTkButton(self.header_frame, text="⋮", width=36, height=36, corner_radius=18,
+                                      fg_color="transparent", hover_color="#e3e3e3", text_color="#1f1f1f", 
+                                      font=("Segoe UI", 20, "bold"), command=self.toggle_options_dropdown)
+        self.dots_btn.pack(side="right")
+
+        # ================= TEXT CHAT ENVIRONMENT =================
+        self.chat_display = ctk.CTkTextbox(self, fg_color="#ffffff", border_width=0, corner_radius=24, 
+                                           font=("Segoe UI", 15), text_color="#1f1f1f")
+        self.chat_display.grid(row=1, column=0, sticky="nsew", padx=30, pady=(0, 20))
+        self.chat_display.configure(state="disabled")
+
+        # ================= FOOTER CONTROL DECK =================
+        self.controls_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.controls_frame.grid(row=2, column=0, sticky="ew", padx=30, pady=(0, 25))
+        self.controls_frame.grid_columnconfigure(1, weight=1)
+
+        # High-Render Dashboard Tiny Orb Activator
+        self.small_orb_canvas = ctk.CTkCanvas(self.controls_frame, width=50, height=50, bg="#f0f4f9", highlightthickness=0)
+        self.small_orb_canvas.grid(row=0, column=0, padx=(0, 15), sticky="w")
+        self.small_orb_canvas.bind("<Button-1>", lambda event: self.engage_floating_live_mode())
+
+        self.input_box = ctk.CTkEntry(self.controls_frame, height=50, fg_color="#ffffff", border_width=0, 
+                                      corner_radius=25, placeholder_text="Ask Pasha anything...", 
+                                      font=("Segoe UI", 14), text_color="#1f1f1f", placeholder_text_color="#757575")
+        self.input_box.grid(row=0, column=1, sticky="ew", padx=(0, 15))
+        self.input_box.bind("<Return>", lambda event: self.send_message())
+
+        self.send_btn = ctk.CTkButton(self.controls_frame, text="➔", width=50, height=50, corner_radius=25, 
+                                       fg_color="#6200ee", hover_color="#4d00b8", text_color="#ffffff", 
+                                       font=("Segoe UI", 16), command=self.send_message)
+        self.send_btn.grid(row=0, column=2, sticky="e")
+
+        # Dropdown Layout
+        self.dropdown_menu = ctk.CTkFrame(self, fg_color="#ffffff", corner_radius=16, border_color="#e3e3e3", border_width=1)
+        self.startup_switch = ctk.CTkSwitch(self.dropdown_menu, text="Launch at logon", font=("Segoe UI", 13), 
+                                            text_color="#1f1f1f", progress_color="#6200ee", command=self.toggle_windows_startup)
+        self.startup_switch.pack(padx=20, pady=18)
+        self.check_initial_registry_state()
+
+        # ================= SINGLE SPHERE FIBONACCI GEOMETRY =================
+        self.hollow_orbit_nodes = []
+        samples = 150  # Total particle density for the sphere
+        phi = math.pi * (math.sqrt(5.0) - 1.0)  # Golden angle for even point distribution
+        
+        for i in range(samples):
+            y = 1 - (i / float(samples - 1)) * 2  # y goes from 1 to -1
+            radius = math.sqrt(1 - y * y)  # radius at y
+            theta = phi * i  # golden angle increment
+            
+            x = math.cos(theta) * radius
+            z = math.sin(theta) * radius
+            
+            self.hollow_orbit_nodes.append((x, y, z, "node"))
+
+        self.rot_x = 0.0
+        self.rot_y = 0.0
+        
+        # Fire up the continuous universal clock drawing updates
+        self.global_render_loop()
+
+    # ================= HOLOGRAPHIC OVERLAY ENGINE (GEMINI LIVE SHIFT) =================
+    def engage_floating_live_mode(self):
+        if self.live_overlay is not None: return
+        
+        self.live_state = "listening"
+        self.withdraw() # Hides the primary text app frame completely from desktop view
+
+        # Instantiate a totally separate floating system layer
+        self.live_overlay = ctk.CTkToplevel(self)
+        self.live_overlay.title("Pasha Hologram")
+        
+        # Fixed spatial geometry tracking square window size
+        w, h = 380, 420
+        scr_w = self.live_overlay.winfo_screenwidth()
+        scr_h = self.live_overlay.winfo_screenheight()
+        cx = int((scr_w - w) / 2)
+        cy = int((scr_h - h) / 2)
+        
+        self.live_overlay.geometry(f"{w}x{h}+{cx}+{cy}")
+        self.live_overlay.overrideredirect(True) # Removes window borders and title banners
+        self.live_overlay.attributes("-topmost", True) # Locks overlay to float directly over running desktop apps
+        
+        # 🧪 ADVANCED CHROMATIC TRANSPARENCY MASKING
+        self.live_overlay.configure(fg_color="#010101")
+        if sys.platform == "win32":
+            self.live_overlay.wm_attributes("-transparentcolor", "#010101")
+
+        # Immersive Render Stage Canvas
+        self.float_canvas = ctk.CTkCanvas(self.live_overlay, width=360, height=340, bg="#010101", highlightthickness=0)
+        self.float_canvas.pack(pady=(10, 0))
+
+        # Floating Status Glow Subtext
+        self.float_lbl = ctk.CTkLabel(self.live_overlay, text="PASHA LIVE", font=("Segoe UI Semibold", 13), text_color="#6200ee")
+        self.float_lbl.pack()
+
+        self.exit_hint_lbl = ctk.CTkLabel(self.live_overlay, text="Double-click canvas to close live mode", font=("Segoe UI", 10), text_color="#5f6368")
+        self.exit_hint_lbl.pack(pady=(2, 10))
+
+        # Bind event handler to easily escape floating ecosystem maps
+        self.float_canvas.bind("<Double-Button-1>", lambda e: self.terminate_floating_live_mode())
+
+        # Start listening stream operations loop
+        threading.Thread(target=self.listen_hologram_pipeline, daemon=True).start()
+
+    def terminate_floating_live_mode(self):
+        if self.live_overlay is None: return
+        self.live_state = "idle"
+        try:
+            self.live_overlay.destroy()
+        except:
+            pass
+        self.live_overlay = None
+        self.deiconify() # Safely restores standard text interface dashboard tracking
+
+    # ================= 3D QUANTUM ORBIT VECTOR RENDERER =================
+    def global_render_loop(self):
+        try:
+            if hasattr(self, 'small_orb_canvas') and self.small_orb_canvas.winfo_exists():
+                self.small_orb_canvas.delete("all")
+
+                # Color Matrix Mapping configuration rules for distinct modes
+                if self.live_state == "listening":
+                    speed, glow_hex, core_hex, radius = 0.04, "#3a0099", "#7a1fa2", 110  # Cosmic Velvet Aura
+                elif self.live_state == "thinking":
+                    speed, glow_hex, core_hex, radius = 0.12, "#ff9e00", "#ffea00", 105  # Electric Kinetic Yellow
+                elif self.live_state == "speaking":
+                    speed, glow_hex, core_hex, radius = 0.02, "#004b23", "#38b000", 120  # Organic Wave Resonance
+                else:
+                    speed, glow_hex, core_hex, radius = 0.01, "#b5b5b5", "#6200ee", 14   # Idle Dashboard metrics
+
+                self.rot_x += speed
+                self.rot_y += speed * 1.3
+
+                # Draw Frame: Standard Tiny Input Dock Orb Icon (Subset of nodes for performance)
+                scx, scy = 25, 25
+                for pt in self.hollow_orbit_nodes[::3]:  
+                    x, y, z, r_id = pt
+                    y1 = y * math.cos(self.rot_x) - z * math.sin(self.rot_x)
+                    x2 = x * math.cos(self.rot_y) + (y * math.sin(self.rot_x) + z * math.cos(self.rot_x)) * math.sin(self.rot_y)
+                    spx = scx + x2 * 13
+                    spy = scy + y1 * 13
+                    self.small_orb_canvas.create_oval(spx-1, spy-1, spx+1, spy+1, fill="#6200ee" if self.live_state=="idle" else core_hex, outline="")
+
+                # Draw Frame: Holographic Advanced Multi-Layer Vector Sphere
+                if self.live_overlay and self.live_overlay.winfo_exists() and hasattr(self, 'float_canvas') and self.float_canvas.winfo_exists():
+                    self.float_canvas.delete("all")
+                    fcx, fcy = 180, 170
+                    
+                    pulse_mod = math.sin(self.rot_x * 0.7) * (15 if self.live_state == "speaking" else 4)
+                    current_radius = radius + pulse_mod
+                    
+                    for pt in self.hollow_orbit_nodes:
+                        x, y, z, ring_id = pt
+                        
+                        # Full Spatial Coordinate System Vector Rotations
+                        y1 = y * math.cos(self.rot_x) - z * math.sin(self.rot_x)
+                        z1 = y * math.sin(self.rot_x) + z * math.cos(self.rot_x)
+                        x2 = x * math.cos(self.rot_y) + z1 * math.sin(self.rot_y)
+                        z2 = -x * math.sin(self.rot_y) + z1 * math.cos(self.rot_y)
+                        
+                        # Depth Projection Calculation Matrix
+                        focal_val = 50.0
+                        depth_scale = focal_val / (focal_val + z2)
+                        
+                        fpx = fcx + x2 * current_radius * depth_scale
+                        fpy = fcy + y1 * current_radius * depth_scale
+                        
+                        glow_radius = max(2, int(8 * depth_scale))
+                        core_radius = max(1, int(3 * depth_scale))
+                        
+                        # ================= SPECTRUM EDGE CALCULATOR =================
+                        dist_2d = math.hypot(x2, y1) # Distance from center in 2D space (0.0 to ~1.0)
+                        
+                        if dist_2d > 0.82: # If the point is on the extreme outer edge of the sphere
+                            angle = math.atan2(y1, x2)
+                            # Shift hue constantly based on rot_x to make the spectrum spin
+                            hue = (angle + math.pi) / (2 * math.pi)
+                            hue = (hue - self.rot_x * 0.4) % 1.0 
+                            
+                            r, g, b = colorsys.hsv_to_rgb(hue, 0.9, 1.0)
+                            node_core_hex = f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+                            
+                            rg, gg, bg = colorsys.hsv_to_rgb(hue, 1.0, 0.5)
+                            node_glow_hex = f"#{int(rg*255):02x}{int(gg*255):02x}{int(bg*255):02x}"
+                        else:
+                            node_core_hex = core_hex
+                            node_glow_hex = glow_hex
+
+                        # Render Glow Background Circle node
+                        self.float_canvas.create_oval(fpx - glow_radius, fpy - glow_radius, fpx + glow_radius, fpy + glow_radius, fill=node_glow_hex, outline="")
+                        # Superimpose High-Intensity core particle vector
+                        self.float_canvas.create_oval(fpx - core_radius, fpy - core_radius, fpx + core_radius, fpy + core_radius, fill=node_core_hex, outline="")
+        except Exception:
+            pass # Suppress ephemeral widget breakdown artifacts during teardown sequence
+        finally:
+            self.after(20, self.global_render_loop)
+
+    # ================= AUDIO STREAM INTERPRETATION CYCLES =================
+    def safely_set_live_state(self, state, text, color):
+        if self.live_overlay and self.live_overlay.winfo_exists():
+            self.live_state = state
+            if hasattr(self, 'float_lbl') and self.float_lbl.winfo_exists():
+                self.float_lbl.configure(text=text.upper(), text_color=color)
+
+    def listen_hologram_pipeline(self):
+        if not self.live_overlay or not self.live_overlay.winfo_exists(): return
+        self.after(0, lambda: self.safely_set_live_state("listening", "Pasha is listening...", "#6200ee"))
+        
+        fs, duration, filename = 16000, 4, "hologram_audio.wav"
+        try:
+            recording = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype='int16')
+            sd.wait()
+            if not self.live_overlay or not self.live_overlay.winfo_exists(): return
+            
+            with wave.open(filename, 'wb') as wf:
+                wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(fs)
+                wf.writeframes(recording.tobytes())
+            
+            r = sr.Recognizer()
+            with sr.AudioFile(filename) as source: audio = r.record(source)
+            user_text = r.recognize_google(audio)
+            
+            self.after(0, lambda: self.log_and_append("You (Live Voice)", user_text))
+            
+            if not self.live_overlay or not self.live_overlay.winfo_exists(): return
+            self.after(0, lambda: self.safely_set_live_state("thinking", "Pasha is thinking...", "#ff9e00"))
+            
+            self.process_hologram_cognition(user_text)
+        except:
+            if self.live_overlay and self.live_overlay.winfo_exists():
+                threading.Thread(target=self.listen_hologram_pipeline, daemon=True).start()
+
+    def process_hologram_cognition(self, user_text):
+        try:
+            r = requests.post("http://127.0.0.1:5000/api/chat", json={"message": user_text, "live_mode": True}, timeout=30)
+            res = r.json()
+            reply = res.get("reply", "System connection trace fault.")
+        except:
+            reply = "Server connectivity failed."
+
+        if not self.live_overlay or not self.live_overlay.winfo_exists(): return
+        self.after(0, lambda: self.log_and_append("Pasha (Live Voice)", reply))
+        
+        self.after(0, lambda: self.safely_set_live_state("speaking", "Pasha is speaking...", "#38b000"))
+        
+        if voice_engine:
+            voice_engine.say(reply)
+            voice_engine.runAndWait()
+            
+        if self.live_overlay and self.live_overlay.winfo_exists():
+            threading.Thread(target=self.listen_hologram_pipeline, daemon=True).start()
+
+    # ================= STANDARD CORE PROCEDURES =================
+    def send_message(self):
+        msg = self.input_box.get().strip()
+        if not msg: return
+        self.input_box.delete(0, "end")
+        self.log_and_append("You", msg)
+        
+        threading.Thread(target=self.dispatch_standard_api_request, args=(msg,), daemon=True).start()
+
+    def dispatch_standard_api_request(self, msg):
+        try:
+            r = requests.post("http://127.0.0.1:5000/api/chat", json={"message": msg, "live_mode": False}, timeout=30)
+            res = r.json()
+            self.after(0, lambda: self.log_and_append("Pasha", res.get("reply", "")))
+        except:
+            self.after(0, lambda: self.log_and_append("System Error", "The Flask background server is offline."))
+
+    def log_and_append(self, sender, message):
+        self.chat_display.configure(state="normal")
+        if "You" in sender:
+            self.chat_display.insert("end", f"👤 {sender}\n{message}\n\n")
+        else:
+            self.chat_display.insert("end", f"✨ {sender}\n{message}\n\n")
+        self.chat_display.configure(state="disabled")
+        self.chat_display.see("end")
+        self.live_sync_history.append(f"{sender}: {message}")
+
+    def toggle_options_dropdown(self):
+        if self.menu_visible:
+            self.dropdown_menu.place_forget()
+        else:
+            self.dropdown_menu.place(x=self.winfo_width() - 250, y=60, width=220, height=60)
+        self.menu_visible = not self.menu_visible
+
+    # ================= WINDOWS REGISTRY AUTORUN INJECTORS =================
+    def toggle_windows_startup(self):
+        if sys.platform != "win32": return
+        reg_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        if self.startup_switch.get() == 1:
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_SET_VALUE)
+                winreg.SetValueEx(key, "PashaAICore", 0, winreg.REG_SZ, f'"{sys.executable}" "{os.path.abspath(__file__)}"')
+                winreg.CloseKey(key)
+            except Exception as e:
+                messagebox.showerror("Registry Blocked", f"Could not create registry autorun profile: {e}")
+        else:
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_SET_VALUE)
+                winreg.DeleteValue(key, "PashaAICore")
+                winreg.CloseKey(key)
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                messagebox.showerror("Registry Blocked", f"Failed clearing authorization keys: {e}")
+
+    def check_initial_registry_state(self):
+        if sys.platform != "win32": return
+        reg_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_READ)
+            winreg.QueryValueEx(key, "PashaAICore")
+            winreg.CloseKey(key)
+            self.startup_switch.select()
+        except FileNotFoundError:
+            self.startup_switch.deselect()
+        except:
+            pass
+
+if __name__ == "__main__":
+    app = PashaQuantumEngine()
+    app.mainloop()
